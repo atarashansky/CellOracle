@@ -35,19 +35,23 @@ def _do_simulation(coef_matrix, simulation_input, gem, n_propagation):
     Returns:
         pandas.DataFrame: simulated gene expression matrix after signal progagation
     """
-    delta_input = simulation_input - gem
+    delta_input = simulation_input.values - gem.values
 
     delta_simulated = delta_input.copy()
     for i in range(n_propagation):
-        delta_simulated = delta_simulated.dot(coef_matrix)
-        delta_simulated[delta_input != 0] = delta_input
+        delta_simulated = delta_simulated.dot(coef_matrix.values)
+        delta_simulated[delta_input != 0] = delta_input[delta_input != 0]
 
         # gene expression cannot be negative. adjust delta values to make sure that gene expression are not netavive values.
-        gem_tmp = gem + delta_simulated
+        gem_tmp = gem.values + delta_simulated
         gem_tmp[gem_tmp<0] = 0
-        delta_simulated = gem_tmp - gem
+        delta_simulated = gem_tmp - gem.values
 
-    gem_simulated = gem + delta_simulated
+    gem_simulated = pd.DataFrame(
+        data=gem.values + delta_simulated,
+        index=gem.index,
+        columns=gem.columns
+    )
 
     return gem_simulated
 

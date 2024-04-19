@@ -839,12 +839,12 @@ class Oracle(modified_VelocytoLoom, Oracle_visualization):
             for cluster in np.unique(cluster_info):
 
                 if use_randomized_GRN == False:
-                    coef_matrix = self.coef_matrix_per_cluster[cluster].copy()
+                    coef_matrix = self.coef_matrix_per_cluster[cluster]
                 else:
                     if hasattr(self, "coef_matrix_per_cluster_randomized") == False:
                         print("The random coef matrix was calculated.")
                         self.calculate_randomized_coef_table()
-                    coef_matrix = self.coef_matrix_per_cluster_randomized[cluster].copy()
+                    coef_matrix = self.coef_matrix_per_cluster_randomized[cluster]
                 cells_in_the_cluster_bool = (cluster_info == cluster)
                 simulation_input_ = simulation_input[cells_in_the_cluster_bool]
                 gem_ = gem_imputed[cells_in_the_cluster_bool]
