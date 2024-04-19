@@ -4,7 +4,6 @@ from copy import deepcopy
 
 import matplotlib.pyplot as plt
 import numpy as np
-import time
 from typing import Dict, Any, List, Union, Tuple
 import pandas as pd
 import scipy.stats
@@ -504,7 +503,6 @@ class modified_VelocytoLoom:
         # Kernel evaluation
         logging.debug("Calculate transition probability")
 
-        start = time.time()
         self.transition_prob = sparse.csr_matrix(self.corrcoef)
         self.transition_prob.data[:] = np.exp(self.transition_prob.data / sigma_corr)
         self.transition_prob = self.transition_prob.multiply(self.embedding_knn)
@@ -553,7 +551,6 @@ class modified_VelocytoLoom:
             delta_embedding_random_tb = np.hstack((delta_embedding_random_tb1.sum(1), delta_embedding_random_tb2.sum(1)))
             self.delta_embedding_random = -(delta_embedding_random_tb - delta_embedding_ek).A
         
-        print(f"Time to calculate transition probability: {time.time() - start}")
 
     def calculate_grid_arrows(
         self,
