@@ -504,48 +504,57 @@ class modified_VelocytoLoom:
         # Kernel evaluation
         logging.debug("Calculate transition probability")
 
-        # NOTE maybe sparse matrix here are slower than dense
-        # NOTE if knn_random this could be made much faster either using sparse matrix or neigh_ixs
         start = time.time()
-        self.transition_prob = (
-            np.exp(self.corrcoef / sigma_corr) * self.embedding_knn.A
-        )  # naive
-        print(f"Time to calculate transition probability: {time.time() - start}")
-        self.transition_prob /= self.transition_prob.sum(1)[:, None]
-        print(f"Time to calculate transition probability: {time.time() - start}")
-        if hasattr(self, "corrcoef_random"):
-            logging.debug("Calculate transition probability for negative control")
-            self.transition_prob_random = (
-                np.exp(self.corrcoef_random / sigma_corr) * self.embedding_knn.A
-            )  # naive
-            self.transition_prob_random /= self.transition_prob_random.sum(1)[:, None]
-        print(f"Time to calculate transition probability: {time.time() - start}")
-        unitary_vectors = (
-            self.embedding.T[:, None, :] - self.embedding.T[:, :, None]
-        )  # shape (2,ncells,ncells)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            unitary_vectors /= np.linalg.norm(
-                unitary_vectors, ord=2, axis=0
-            )  # divide by L2
-            np.fill_diagonal(unitary_vectors[0, ...], 0)  # fix nans
-            np.fill_diagonal(unitary_vectors[1, ...], 0)
-        print(f"Time to calculate transition probability: {time.time() - start}")
-        self.delta_embedding = (self.transition_prob * unitary_vectors).sum(2)
-        self.delta_embedding -= (self.embedding_knn.A * unitary_vectors).sum(
-            2
-        ) / self.embedding_knn.sum(1).A.T
-        self.delta_embedding = self.delta_embedding.T
-        print(f"Time to calculate transition probability: {time.time() - start}")
+        self.transition_prob = sparse.csr_matrix(self.corrcoef)
+        self.transition_prob.data[:] = np.exp(self.transition_prob.data / sigma_corr)
+        self.transition_prob = self.transition_prob.multiply(self.embedding_knn)
+        self.transition_prob = self.transition_prob.multiply(1 / self.transition_prob.sum(1).A)
 
         if hasattr(self, "corrcoef_random"):
-            self.delta_embedding_random = (
-                self.transition_prob_random * unitary_vectors
-            ).sum(2)
-            self.delta_embedding_random -= (self.embedding_knn.A * unitary_vectors).sum(
-                2
-            ) / self.embedding_knn.sum(1).A.T
-            self.delta_embedding_random = self.delta_embedding_random.T
+            logging.debug("Calculate transition probability for negative control")
+            
+            self.transition_prob_random = sparse.csr_matrix(self.corrcoef_random)
+            self.transition_prob_random.data[:] = np.exp(self.transition_prob_random.data / sigma_corr)
+            self.transition_prob_random = self.transition_prob_random.multiply(self.embedding_knn)
+            self.transition_prob_random = self.transition_prob_random.multiply(1 / self.transition_prob_random.sum(1).A)
+            
+        with np.errstate(divide="ignore", invalid="ignore"):
+            x, y = self.transition_prob.nonzero()
+            unitary_vector_pairs_tb = self.embedding[x] - self.embedding[y]
+            unitary_vector_pairs_tb /= np.linalg.norm(unitary_vector_pairs_tb, ord=2, axis=1)[:, None]
+            unitary_vector_pairs_tb[x==y]=0     
+
+            x, y = self.embedding_knn.nonzero()       
+            unitary_vector_pairs_ek = self.embedding[x] - self.embedding[y]
+            unitary_vector_pairs_ek /= np.linalg.norm(unitary_vector_pairs_ek, ord=2, axis=1)[:, None]
+            unitary_vector_pairs_ek[x==y]=0
+
+            
+        self.delta_embedding_tb1 = self.transition_prob.copy()
+        self.delta_embedding_tb1.data[:] = self.delta_embedding_tb1.data * unitary_vector_pairs_tb[:,0]
+        self.delta_embedding_tb2 = self.transition_prob.copy()
+        self.delta_embedding_tb2.data[:] = self.delta_embedding_tb2.data * unitary_vector_pairs_tb[:,1]
+        self.delta_embedding_tb = np.hstack((self.delta_embedding_tb1.sum(1), self.delta_embedding_tb2.sum(1)))
+        
+        self.delta_embedding_ek1 = self.embedding_knn.copy()
+        self.delta_embedding_ek1.data[:] = self.delta_embedding_ek1.data * unitary_vector_pairs_ek[:,0]
+        self.delta_embedding_ek2 = self.embedding_knn.copy()
+        self.delta_embedding_ek2.data[:] = self.delta_embedding_ek2.data * unitary_vector_pairs_ek[:,1]
+        self.delta_embedding_ek = np.hstack((self.delta_embedding_ek1.sum(1), self.delta_embedding_ek2.sum(1)))
+        self.delta_embedding_ek /= self.embedding_knn.sum(1).A
+
+        self.delta_embedding = -(self.delta_embedding_tb - self.delta_embedding_ek)
+
+        if hasattr(self, "corrcoef_random"):
+            self.delta_embedding_random_tb1 = self.transition_prob_random.copy()
+            self.delta_embedding_random_tb1.data[:] = self.delta_embedding_random_tb1.data * unitary_vector_pairs_tb[:,0]
+            self.delta_embedding_random_tb2 = self.transition_prob_random.copy()
+            self.delta_embedding_random_tb2.data[:] = self.delta_embedding_random_tb2.data * unitary_vector_pairs_tb[:,1]
+            self.delta_embedding_random_tb = np.hstack((self.delta_embedding_random_tb1.sum(1), self.delta_embedding_random_tb2.sum(1)))
+            self.delta_embedding_random = -(self.delta_embedding_random_tb - self.delta_embedding_ek)
+        
         print(f"Time to calculate transition probability: {time.time() - start}")
+        print("DONE")
 
     def calculate_grid_arrows(
         self,
