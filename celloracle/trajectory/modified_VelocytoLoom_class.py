@@ -530,31 +530,30 @@ class modified_VelocytoLoom:
             unitary_vector_pairs_ek[x==y]=0
 
             
-        self.delta_embedding_tb1 = self.transition_prob.copy()
-        self.delta_embedding_tb1.data[:] = self.delta_embedding_tb1.data * unitary_vector_pairs_tb[:,0]
-        self.delta_embedding_tb2 = self.transition_prob.copy()
-        self.delta_embedding_tb2.data[:] = self.delta_embedding_tb2.data * unitary_vector_pairs_tb[:,1]
-        self.delta_embedding_tb = np.hstack((self.delta_embedding_tb1.sum(1), self.delta_embedding_tb2.sum(1)))
+        delta_embedding_tb1 = self.transition_prob.copy()
+        delta_embedding_tb1.data[:] = delta_embedding_tb1.data * unitary_vector_pairs_tb[:,0]
+        delta_embedding_tb2 = self.transition_prob.copy()
+        delta_embedding_tb2.data[:] = delta_embedding_tb2.data * unitary_vector_pairs_tb[:,1]
+        delta_embedding_tb = np.hstack((delta_embedding_tb1.sum(1), delta_embedding_tb2.sum(1)))
         
-        self.delta_embedding_ek1 = self.embedding_knn.copy()
-        self.delta_embedding_ek1.data[:] = self.delta_embedding_ek1.data * unitary_vector_pairs_ek[:,0]
-        self.delta_embedding_ek2 = self.embedding_knn.copy()
-        self.delta_embedding_ek2.data[:] = self.delta_embedding_ek2.data * unitary_vector_pairs_ek[:,1]
-        self.delta_embedding_ek = np.hstack((self.delta_embedding_ek1.sum(1), self.delta_embedding_ek2.sum(1)))
-        self.delta_embedding_ek /= self.embedding_knn.sum(1).A
+        delta_embedding_ek1 = self.embedding_knn.copy()
+        delta_embedding_ek1.data[:] = delta_embedding_ek1.data * unitary_vector_pairs_ek[:,0]
+        delta_embedding_ek2 = self.embedding_knn.copy()
+        delta_embedding_ek2.data[:] = delta_embedding_ek2.data * unitary_vector_pairs_ek[:,1]
+        delta_embedding_ek = np.hstack((delta_embedding_ek1.sum(1), delta_embedding_ek2.sum(1)))
+        delta_embedding_ek /= self.embedding_knn.sum(1).A
 
-        self.delta_embedding = -(self.delta_embedding_tb - self.delta_embedding_ek)
+        self.delta_embedding = -(delta_embedding_tb - delta_embedding_ek).A
 
         if hasattr(self, "corrcoef_random"):
-            self.delta_embedding_random_tb1 = self.transition_prob_random.copy()
-            self.delta_embedding_random_tb1.data[:] = self.delta_embedding_random_tb1.data * unitary_vector_pairs_tb[:,0]
-            self.delta_embedding_random_tb2 = self.transition_prob_random.copy()
-            self.delta_embedding_random_tb2.data[:] = self.delta_embedding_random_tb2.data * unitary_vector_pairs_tb[:,1]
-            self.delta_embedding_random_tb = np.hstack((self.delta_embedding_random_tb1.sum(1), self.delta_embedding_random_tb2.sum(1)))
-            self.delta_embedding_random = -(self.delta_embedding_random_tb - self.delta_embedding_ek)
+            delta_embedding_random_tb1 = self.transition_prob_random.copy()
+            delta_embedding_random_tb1.data[:] = delta_embedding_random_tb1.data * unitary_vector_pairs_tb[:,0]
+            delta_embedding_random_tb2 = self.transition_prob_random.copy()
+            delta_embedding_random_tb2.data[:] = delta_embedding_random_tb2.data * unitary_vector_pairs_tb[:,1]
+            delta_embedding_random_tb = np.hstack((delta_embedding_random_tb1.sum(1), delta_embedding_random_tb2.sum(1)))
+            self.delta_embedding_random = -(delta_embedding_random_tb - delta_embedding_ek).A
         
         print(f"Time to calculate transition probability: {time.time() - start}")
-        print("DONE")
 
     def calculate_grid_arrows(
         self,

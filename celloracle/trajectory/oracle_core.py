@@ -856,6 +856,7 @@ class Oracle(modified_VelocytoLoom, Oracle_visualization):
                                              n_propagation=n_propagation)
 
                 simulated.append(simulated_in_the_cluster)
+
             gem_simulated = pd.concat(simulated, axis=0)
             gem_simulated = gem_simulated.reindex(gem_imputed.index)
 
