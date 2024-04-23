@@ -365,8 +365,9 @@ class modified_VelocytoLoom:
 
         numba_random_seed(random_seed)
 
-        X = sparse.csr_matrix(_adata_to_matrix(self.adata, "imputed_count"))
-        delta_X = _adata_to_matrix(self.adata, "delta_X")
+        X = self.adata.layers["imputed_count_sparse"]
+        delta_X = self.adata.layers["delta_X_sparse"]
+        
         embedding = self.adata.obsm[self.embedding_name]
         self.embedding = embedding
 
@@ -378,9 +379,11 @@ class modified_VelocytoLoom:
             self.corr_calc = "knn_random"
 
             if calculate_randomized:
-                delta_X_rndm = np.copy(delta_X)
+                delta_X_rndm =np.copy(self.adata.layers["delta_X"])
                 permute_rows_nsign(delta_X_rndm)
                 delta_X_rndm = sparse.csr_matrix(delta_X_rndm)
+                
+            
             
             delta_X = sparse.csr_matrix(delta_X)
 
@@ -440,23 +443,20 @@ class modified_VelocytoLoom:
 
             ###
             ###
-            X_sparse = sparse.csr_matrix(X.T)
-            delta_X_sparse = sparse.csr_matrix(delta_X.T)
-            e_sparse = sparse.vstack((delta_X_sparse, X_sparse))
+            e_sparse = sparse.vstack((delta_X, X))
             p = np.vstack((
                 np.tile(np.arange(neigh_ixs.shape[0])[:,None], (1,neigh_ixs.shape[1])).flatten(),
-                (neigh_ixs + delta_X_sparse.shape[0]).flatten()
+                (neigh_ixs + delta_X.shape[0]).flatten()
             )).T
-            corrcoef_data = _compute_correlations(p,e_sparse.indptr,e_sparse.indices,e_sparse.data,delta_X_sparse.shape[0],e_sparse.shape[1])
+            corrcoef_data = _compute_correlations(p,e_sparse.indptr,e_sparse.indices,e_sparse.data,delta_X.shape[0],e_sparse.shape[1])
             corrcoef_data[np.isnan(corrcoef_data)] = 1
-            self.corrcoef = sparse.coo_matrix((corrcoef_data,(p[:,0],p[:,1]-delta_X_sparse.shape[0])), shape=(delta_X_sparse.shape[0],delta_X_sparse.shape[0])).tocsr()
+            self.corrcoef = sparse.coo_matrix((corrcoef_data,(p[:,0],p[:,1]-delta_X.shape[0])), shape=(delta_X.shape[0],delta_X.shape[0])).tocsr()
             if calculate_randomized:
                 logging.debug(f"Correlation Calculation for negative control")
-                delta_X_rndm_sparse = sparse.csr_matrix(delta_X_rndm.T)
-                e_rndm_sparse = sparse.vstack((delta_X_rndm_sparse, X_sparse))
-                corrcoef_data_rndm = _compute_correlations(p,e_rndm_sparse.indptr,e_rndm_sparse.indices,e_rndm_sparse.data,delta_X_rndm_sparse.shape[0],e_rndm_sparse.shape[1])
+                e_rndm_sparse = sparse.vstack((delta_X_rndm, X))
+                corrcoef_data_rndm = _compute_correlations(p,e_rndm_sparse.indptr,e_rndm_sparse.indices,e_rndm_sparse.data,delta_X_rndm.shape[0],e_rndm_sparse.shape[1])
                 corrcoef_data_rndm[np.isnan(corrcoef_data_rndm)] = 1
-                self.corrcoef_random = sparse.coo_matrix((corrcoef_data_rndm,(p[:,0],p[:,1]-delta_X_rndm_sparse.shape[0])), shape=(delta_X_rndm_sparse.shape[0],delta_X_rndm_sparse.shape[0])).tocsr()
+                self.corrcoef_random = sparse.coo_matrix((corrcoef_data_rndm,(p[:,0],p[:,1]-delta_X_rndm.shape[0])), shape=(delta_X_rndm.shape[0],delta_X_rndm.shape[0])).tocsr()
 
         else:
             self.corr_calc = "full"

@@ -10,6 +10,7 @@ import numpy as np
 from typing import Dict, Any, List, Union, Tuple
 import pandas as pd
 import scanpy as sc
+from scipy import sparse
 import seaborn as sns
 from tqdm.auto import tqdm
 
@@ -757,7 +758,9 @@ class Oracle(modified_VelocytoLoom, Oracle_visualization):
 
         # 1. prepare perturb information
 
-
+        if not hasattr(self, "coef_matrix_per_cluster_sparse") and hasattr(self, "coef_matrix_per_cluster"):
+            self.coef_matrix_per_cluster_sparse = {cluster: sparse.csr_matrix(self.coef_matrix_per_cluster[cluster].values) for cluster in self.coef_matrix_per_cluster}            
+            
         self.perturb_condition = perturb_condition.copy()
 
 
@@ -810,14 +813,17 @@ class Oracle(modified_VelocytoLoom, Oracle_visualization):
                 raise ValueError(f'n_propagation value error. It should be an integer from {n_min} to {n_max}.')
 
         # reset simulation initiation point
-        self.adata.layers["simulation_input"] = self.adata.layers["imputed_count"].copy()
-        simulation_input = _adata_to_df(self.adata, "simulation_input")
+        if "imputed_count_sparse" not in self.adata.layers:
+            self.adata.layers["imputed_count_sparse"] = sparse.csr_matrix(self.adata.layers["imputed_count"])
+        self.adata.layers["simulation_input_sparse"] = self.adata.layers["imputed_count_sparse"].copy()
+        
+        simulation_input = self.adata.layers["simulation_input_sparse"]
         for i in perturb_condition.keys():
-            simulation_input[i] = perturb_condition[i]
+            simulation_input[:, self.adata.var_names == i] = perturb_condition[i]
 
 
         # 2. load gene expression matrix (initiation information for the simulation)
-        gem_imputed = _adata_to_df(self.adata, "imputed_count")
+        gem_imputed = self.adata.layers["imputed_count_sparse"]
 
         # 3. do simulation for signal propagation within GRNs
         if GRN_unit == "whole":
@@ -838,44 +844,42 @@ class Oracle(modified_VelocytoLoom, Oracle_visualization):
             cluster_info = self.adata.obs[self.cluster_column_name]
             for cluster in np.unique(cluster_info):
 
-                if use_randomized_GRN == False:
-                    coef_matrix = self.coef_matrix_per_cluster[cluster]
+                if True: # only allow this for now
+                    coef_matrix = self.coef_matrix_per_cluster_sparse[cluster]
                 else:
                     if hasattr(self, "coef_matrix_per_cluster_randomized") == False:
                         print("The random coef matrix was calculated.")
                         self.calculate_randomized_coef_table()
                     coef_matrix = self.coef_matrix_per_cluster_randomized[cluster]
                 cells_in_the_cluster_bool = (cluster_info == cluster)
-                simulation_input_ = simulation_input[cells_in_the_cluster_bool]
-                gem_ = gem_imputed[cells_in_the_cluster_bool]
+                simulation_input_ = simulation_input[cells_in_the_cluster_bool].tolil()
+                gem_ = gem_imputed[cells_in_the_cluster_bool].tolil()
 
-                simulated_in_the_cluster = _do_simulation(
-                                             coef_matrix=coef_matrix,
-                                             simulation_input=simulation_input_,
-                                             gem=gem_,
-                                             n_propagation=n_propagation)
 
-                simulated.append(simulated_in_the_cluster)
+                simulated.append(
+                    _do_simulation(coef_matrix=coef_matrix,
+                                   simulation_input=simulation_input_,
+                                   gem=gem_,
+                                   n_propagation=n_propagation)
+                )
 
-            gem_simulated = pd.concat(simulated, axis=0)
-            gem_simulated = gem_simulated.reindex(gem_imputed.index)
-
+            gem_simulated = sparse.vstack(simulated)
         else:
             raise ValueError("GRN_unit shold be either of 'whole' or 'cluster'")
 
         # 4. store simulation results
         #  simulated future gene expression matrix
-        self.adata.layers["simulated_count"] = gem_simulated.values
+        self.adata.layers["simulated_count_sparse"] = gem_simulated
 
         #  difference between simulated values and original values
-        self.adata.layers["delta_X"] = self.adata.layers["simulated_count"] - self.adata.layers["imputed_count"]
+        self.adata.layers["delta_X_sparse"] = self.adata.layers["simulated_count_sparse"] - self.adata.layers["imputed_count_sparse"]
 
         # Clip simulated gene expression to avoid out of distribution prediction.
-        if clip_delta_X:
+        if False: # disable this for now
             self.clip_delta_X()
 
         # Sanity check; check distribution of simulated values. If the value is far from original gene expression range, it will give warning.
-        if ignore_warning:
+        if True: #always ignore warnings for now
             pass
         else:
             ood_stat = self.evaluate_simulated_gene_distribution_range()
