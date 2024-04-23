@@ -23,11 +23,11 @@ def _do_simulation(coef_matrix, simulation_input, gem, n_propagation):
     Silulate signal propagation in GRNs.
 
     Args:
-        coef_matrix (pandas.DataFrame): 2d matrix that store GRN weights
+        coef_matrix (scipy csr matrix): 2d matrix that store GRN weights
 
-        simulation_input (pandas.DataFrame): input for simulation
+        simulation_input (scipy csr matrix): input for simulation
 
-        gem (pandas.DataFrame): input for simulation
+        gem (scipy csr matrix): input for simulation
 
         n_propagation (int): number of propagation.
 
@@ -39,7 +39,7 @@ def _do_simulation(coef_matrix, simulation_input, gem, n_propagation):
     delta_simulated = delta_input.copy()
     for i in range(n_propagation):
         delta_simulated = delta_simulated.dot(coef_matrix)
-        delta_simulated[x,y] =delta_input.data
+        delta_simulated[x,y] = delta_input.data
 
         # gene expression cannot be negative. adjust delta values to make sure that gene expression are not netavive values.
         gem_tmp = gem + delta_simulated

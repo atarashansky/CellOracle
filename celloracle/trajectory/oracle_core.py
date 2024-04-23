@@ -842,6 +842,9 @@ class Oracle(modified_VelocytoLoom, Oracle_visualization):
         elif GRN_unit == "cluster":
             simulated = []
             cluster_info = self.adata.obs[self.cluster_column_name]
+            original_indices = np.arange(self.adata.shape[0])
+            new_indices = []
+
             for cluster in np.unique(cluster_info):
 
                 if True: # only allow this for now
@@ -852,8 +855,9 @@ class Oracle(modified_VelocytoLoom, Oracle_visualization):
                         self.calculate_randomized_coef_table()
                     coef_matrix = self.coef_matrix_per_cluster_randomized[cluster]
                 cells_in_the_cluster_bool = (cluster_info == cluster)
-                simulation_input_ = simulation_input[cells_in_the_cluster_bool].tolil()
-                gem_ = gem_imputed[cells_in_the_cluster_bool].tolil()
+                new_indices.extend(np.where(cells_in_the_cluster_bool)[0])
+                simulation_input_ = simulation_input[cells_in_the_cluster_bool]
+                gem_ = gem_imputed[cells_in_the_cluster_bool]
 
 
                 simulated.append(
@@ -863,7 +867,7 @@ class Oracle(modified_VelocytoLoom, Oracle_visualization):
                                    n_propagation=n_propagation)
                 )
 
-            gem_simulated = sparse.vstack(simulated)
+            gem_simulated = sparse.vstack(simulated).tocsr()[np.argsort(new_indices)]
         else:
             raise ValueError("GRN_unit shold be either of 'whole' or 'cluster'")
 
