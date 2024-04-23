@@ -7,7 +7,7 @@ import numpy as np
 from typing import Dict, Any, List, Union, Tuple
 import pandas as pd
 import scipy.stats
-from numba import jit
+from numba import jit, njit, prange
 from scipy import sparse
 from scipy.spatial.distance import pdist, squareform
 from scipy.stats import norm as normal
@@ -365,7 +365,7 @@ class modified_VelocytoLoom:
 
         numba_random_seed(random_seed)
 
-        X = _adata_to_matrix(self.adata, "imputed_count")  # [:, :ndims]
+        X = sparse.csr_matrix(_adata_to_matrix(self.adata, "imputed_count"))
         delta_X = _adata_to_matrix(self.adata, "delta_X")
         embedding = self.adata.obsm[self.embedding_name]
         self.embedding = embedding
@@ -380,6 +380,9 @@ class modified_VelocytoLoom:
             if calculate_randomized:
                 delta_X_rndm = np.copy(delta_X)
                 permute_rows_nsign(delta_X_rndm)
+                delta_X_rndm = sparse.csr_matrix(delta_X_rndm)
+            
+            delta_X = sparse.csr_matrix(delta_X)
 
             logging.debug("Calculate KNN in the embedding space")
 
@@ -437,29 +440,24 @@ class modified_VelocytoLoom:
 
             ###
             ###
-            self.corrcoef = colDeltaCorpartial(X, delta_X, neigh_ixs, threads=threads)
+            X_sparse = sparse.csr_matrix(X.T)
+            delta_X_sparse = sparse.csr_matrix(delta_X.T)
+            e_sparse = sparse.vstack((delta_X_sparse, X_sparse))
+            p = np.vstack((
+                np.tile(np.arange(neigh_ixs.shape[0])[:,None], (1,neigh_ixs.shape[1])).flatten(),
+                (neigh_ixs + delta_X_sparse.shape[0]).flatten()
+            )).T
+            corrcoef_data = _compute_correlations(p,e_sparse.indptr,e_sparse.indices,e_sparse.data,delta_X_sparse.shape[0],e_sparse.shape[1])
+            corrcoef_data[np.isnan(corrcoef_data)] = 1
+            self.corrcoef = sparse.coo_matrix((corrcoef_data,(p[:,0],p[:,1]-delta_X_sparse.shape[0])), shape=(delta_X_sparse.shape[0],delta_X_sparse.shape[0])).tocsr()
             if calculate_randomized:
                 logging.debug(f"Correlation Calculation for negative control")
-                self.corrcoef_random = colDeltaCorpartial(
-                    X, delta_X_rndm, neigh_ixs, threads=threads
-                )
-            ######
+                delta_X_rndm_sparse = sparse.csr_matrix(delta_X_rndm.T)
+                e_rndm_sparse = sparse.vstack((delta_X_rndm_sparse, X_sparse))
+                corrcoef_data_rndm = _compute_correlations(p,e_rndm_sparse.indptr,e_rndm_sparse.indices,e_rndm_sparse.data,delta_X_rndm_sparse.shape[0],e_rndm_sparse.shape[1])
+                corrcoef_data_rndm[np.isnan(corrcoef_data_rndm)] = 1
+                self.corrcoef_random = sparse.coo_matrix((corrcoef_data_rndm,(p[:,0],p[:,1]-delta_X_rndm_sparse.shape[0])), shape=(delta_X_rndm_sparse.shape[0],delta_X_rndm_sparse.shape[0])).tocsr()
 
-            if np.any(np.isnan(self.corrcoef)):
-                self.corrcoef[np.isnan(self.corrcoef)] = 1
-                logging.debug(
-                    "Nans encountered in corrcoef and corrected to 1s. If not identical cells were present it is probably a small isolated cluster converging after imputation."
-                )
-                # logging.warning("Nans encountered in corrcoef and corrected to 1s. If not identical cells were present it is probably a small isolated cluster converging after imputation.")
-            if calculate_randomized:
-                np.fill_diagonal(self.corrcoef_random, 0)
-                if np.any(np.isnan(self.corrcoef_random)):
-                    self.corrcoef_random[np.isnan(self.corrcoef_random)] = 1
-                    # logging.warning("Nans encountered in corrcoef and corrected to 1s. If not identical cells were present it is probably a small isolated cluster converging after imputation.")
-                    logging.debug(
-                        "Nans encountered in corrcoef_random and corrected to 1s. If not identical cells were present it is probably a small isolated cluster converging after imputation."
-                    )
-            logging.debug(f"Done Correlation Calculation")
         else:
             self.corr_calc = "full"
 
@@ -503,15 +501,14 @@ class modified_VelocytoLoom:
         # Kernel evaluation
         logging.debug("Calculate transition probability")
 
-        self.transition_prob = sparse.csr_matrix(self.corrcoef)
+        self.transition_prob = self.corrcoef
         self.transition_prob.data[:] = np.exp(self.transition_prob.data / sigma_corr)
         self.transition_prob = self.transition_prob.multiply(self.embedding_knn)
         self.transition_prob = self.transition_prob.multiply(1 / self.transition_prob.sum(1).A)
 
         if hasattr(self, "corrcoef_random"):
             logging.debug("Calculate transition probability for negative control")
-            
-            self.transition_prob_random = sparse.csr_matrix(self.corrcoef_random)
+            self.transition_prob_random = self.corrcoef_random
             self.transition_prob_random.data[:] = np.exp(self.transition_prob_random.data / sigma_corr)
             self.transition_prob_random = self.transition_prob_random.multiply(self.embedding_knn)
             self.transition_prob_random = self.transition_prob_random.multiply(1 / self.transition_prob_random.sum(1).A)
@@ -1136,3 +1133,39 @@ def permute_rows_nsign(A: np.ndarray) -> None:
 def gaussian_kernel(X: np.ndarray, mu: float = 0, sigma: float = 1) -> np.ndarray:
     """Compute gaussian kernel"""
     return np.exp(-((X - mu) ** 2) / (2 * sigma**2)) / np.sqrt(2 * np.pi * sigma**2)
+
+@njit(parallel=True)
+def _compute_correlations(p,indptr,indices,data,n,m):
+    p1 = p[:,0]
+    p2 = p[:,1]
+    
+    res = np.zeros(p1.size)
+    for j in prange(len(p1)):
+        j1, j2 = p1[j], p2[j]
+        
+        # skip self-neighbors
+        if j1 == j2 - n:
+            continue
+
+        j3 = j1 + n
+        ad = data[indptr[j1] : indptr[j1 + 1]]
+        ai = indices[indptr[j1] : indptr[j1 + 1]]
+
+        bd = data[indptr[j2] : indptr[j2 + 1]]
+        bi = indices[indptr[j2] : indptr[j2 + 1]]
+
+        cd = data[indptr[j3] : indptr[j3 + 1]]
+        ci = indices[indptr[j3] : indptr[j3 + 1]]
+
+        x = np.zeros(m)
+        x[ai] = ad
+        y = np.zeros(m)
+        y[bi] = bd
+        z = np.zeros(m)
+        z[ci] = cd
+
+        X = x
+        Y = y - z
+        res[j] = ((X-X.mean())*(Y-Y.mean()) / X.std() / Y.std()).sum() / X.size
+    
+    return res  
