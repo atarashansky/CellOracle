@@ -379,14 +379,12 @@ class modified_VelocytoLoom:
             self.corr_calc = "knn_random"
 
             if calculate_randomized:
-                delta_X_rndm =np.copy(self.adata.layers["delta_X"])
+                delta_X_rndm =np.copy(self.adata.layers["delta_X_sparse"].A)
                 permute_rows_nsign(delta_X_rndm)
                 delta_X_rndm = sparse.csr_matrix(delta_X_rndm)
+                self.adata.layers["delta_X_rndm_sparse"] = delta_X_rndm
                 
             
-            
-            delta_X = sparse.csr_matrix(delta_X)
-
             logging.debug("Calculate KNN in the embedding space")
 
             if cell_idx_use is None:
@@ -506,7 +504,7 @@ class modified_VelocytoLoom:
         self.transition_prob = self.transition_prob.multiply(self.embedding_knn)
         self.transition_prob = self.transition_prob.multiply(1 / self.transition_prob.sum(1).A)
 
-        if hasattr(self, "corrcoef_random"):
+        if hasattr(self, "corrcoef_random") and self.corrcoef_random is not None:
             logging.debug("Calculate transition probability for negative control")
             self.transition_prob_random = self.corrcoef_random
             self.transition_prob_random.data[:] = np.exp(self.transition_prob_random.data / sigma_corr)
@@ -540,7 +538,7 @@ class modified_VelocytoLoom:
 
         self.delta_embedding = -(delta_embedding_tb - delta_embedding_ek).A
 
-        if hasattr(self, "corrcoef_random"):
+        if hasattr(self, "corrcoef_random") and self.corrcoef_random is not None:
             delta_embedding_random_tb1 = self.transition_prob_random.copy()
             delta_embedding_random_tb1.data[:] = delta_embedding_random_tb1.data * unitary_vector_pairs_tb[:,0]
             delta_embedding_random_tb2 = self.transition_prob_random.copy()
@@ -598,7 +596,7 @@ class modified_VelocytoLoom:
         embedding = self.embedding
         delta_embedding = getattr(self, f"delta_embedding")
 
-        if hasattr(self, "corrcoef_random"):
+        if hasattr(self, "corrcoef_random") and self.corrcoef_random is not None:
             delta_embedding_random = getattr(self, f"delta_embedding_random")
 
         # Prepare the grid
@@ -641,7 +639,7 @@ class modified_VelocytoLoom:
         self.flow_norm = UZ / np.percentile(magnitude, 99.5)
         self.flow_norm_magnitude = np.linalg.norm(self.flow_norm, axis=1)
 
-        if hasattr(self, "corrcoef_random"):
+        if hasattr(self, "corrcoef_random") and self.corrcoef_random is not None:
             UZ_rndm = (delta_embedding_random[neighs] * gaussian_w[:, :, None]).sum(
                 1
             ) / np.maximum(1, self.total_p_mass)[
